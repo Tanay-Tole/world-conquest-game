@@ -91,20 +91,23 @@ function newGame(o) {
 
   // distinct AI colours, avoiding the player's hue
   const pHue = rgbHue(P.rgb), pal = []; let h = rng() * 360;
-  while (pal.length < D.ais) {
+  for (let attempts = 0; pal.length < D.ais && attempts < 360; attempts++) {
     h = (h + 137.508) % 360;
     const dh = Math.min(Math.abs(h - pHue), 360 - Math.abs(h - pHue));
     if (dh < 20) continue;
     pal.push(rgb2hex(hsl2rgb(h, .42 + rng() * .22, .44 + rng() * .14)));
   }
+  for (let i = pal.length; i < D.ais; i++)
+    pal.push(rgb2hex(hsl2rgb((pHue + 30 + i * 137.508) % 360, .58, .5)));
   // spread AI capitals across the globe (min distance relaxes if needed)
   const cands = [];
   for (let t = 0; t < T; t++) { const tr = WD.terr[t]; if (tr.area >= 35 && tr.terrain !== 6 && t !== o.start) cands.push(t); }
+  if (cands.length < D.ais) throw new Error('Not enough eligible territories to place every rival empire.');
   const starts = [o.start], names = new Set([o.name]);
   let minD = 210, fails = 0;
   for (let i = 0; i < D.ais; i++) {
     let pick = -1;
-    while (pick < 0) {
+    for (let attempt = 0; attempt < 80 && pick < 0; attempt++) {
       const t = cands[(rng() * cands.length) | 0];
       if (used.has(t)) continue;
       const a = WD.terr[t]; let ok = true;
@@ -114,8 +117,33 @@ function newGame(o) {
       }
       if (ok) pick = t; else if (++fails > 80) { fails = 0; minD *= .88; }
     }
+    if (pick < 0) {
+      let bestDistance = -1;
+      for (const t of cands) {
+        if (used.has(t)) continue;
+        const a = WD.terr[t];
+        let nearest = Infinity;
+        for (const s of starts) {
+          const b = WD.terr[s]; let dx = Math.abs(a.ax - b.ax); dx = Math.min(dx, WD.MW - dx);
+          nearest = Math.min(nearest, Math.hypot(dx, a.ay - b.ay));
+        }
+        if (nearest > bestDistance) { bestDistance = nearest; pick = t; }
+      }
+      if (pick < 0) throw new Error('Not enough eligible territories to place every rival empire.');
+      minD = Math.min(minD, bestDistance);
+    }
     starts.push(pick);
-    let nm; do nm = genName(rng); while (names.has(nm)); names.add(nm);
+    let nm;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      nm = genName(rng);
+      if (!names.has(nm)) break;
+    }
+    if (names.has(nm)) {
+      const base = `AI Empire ${i + 1}`;
+      nm = base;
+      for (let suffix = 2; names.has(nm); suffix++) nm = `${base} ${suffix}`;
+    }
+    names.add(nm);
     const e = makeEmpire(i + 1, nm, pal[i], EMB_KEYS[(rng() * EMB_KEYS.length) | 0], false);
     e.doctrine = Object.keys(DOCTRINES)[(rng() * Object.keys(DOCTRINES).length) | 0];
     e.econ = D.econ; e.mil = .28; e.research = .07;
@@ -670,23 +698,88 @@ const Save = {
     try {
       const o = JSON.parse(s, (k, v) => v && typeof v === 'object' && v.__t && TA[v.__t] ? new TA[v.__t](v.d) : v);
       if (o.sig !== WD.sig) { toast('This save was made with a different map version', 'bad'); return false; }
-      G = o.G;
-      if (!G.fact || G.fact.length !== WD.T) G.fact = new Uint8Array(WD.T);
-      if (!G.colony || G.colony.length !== WD.T) G.colony = new Uint8Array(WD.T);
-      if (!G.colPolicy || G.colPolicy.length !== WD.T) G.colPolicy = new Uint8Array(WD.T);
-      if (!G.silo || G.silo.length !== WD.T) G.silo = new Uint8Array(WD.T);
-      if (!G.missile || G.missile.length !== WD.T) G.missile = new Uint8Array(WD.T);
-      if (!G.nuke || G.nuke.length !== WD.T) G.nuke = new Uint8Array(WD.T);
-      if (!G.strikes) G.strikes = [];
-      if (!G.trade) G.trade = G.empires.map(() => new Uint8Array(G.empires.length));
-      for (const e of G.empires) {
-        if (!G.trade[e.id]) G.trade[e.id] = new Uint8Array(G.empires.length);
-        for (const other of G.empires) if (!G.trade[e.id][other.id]) G.trade[e.id][other.id] = 0;
-        if (!e.fin) e.fin = { income: 0, trade: 0, milB: 0, resB: 0, upk: 0, net: 0 };
+      const g = o.G;
+      const territoryArrays = ['owner', 'troops', 'pop', 'ind', 'res', 'fort', 'supply'];
+      if (!g || !Number.isInteger(g.day) || g.day < 0 || !DIFF[g.diff] ||
+          !GOALS.some(goal => goal.k === g.goal) || !Number.isInteger(g.nid) ||
+          !Array.isArray(g.empires) || !g.empires.length ||
+          territoryArrays.some(key => !g[key] || g[key].length !== WD.T) ||
+          g.empires.some((e, id) => !e || e.id !== id || typeof e.alive !== 'boolean' ||
+            !Number.isInteger(e.capital) || e.capital < -1 || e.capital >= WD.T ||
+            ['treasury', 'tech', 'morale', 'mil', 'research', 'navy', 'busy', 'econ'].some(key => !Number.isFinite(e[key])))) {
+        throw new Error('Save data is incomplete or corrupted');
       }
-      G.strikes = G.strikes.filter(s => s && Number.isInteger(s.dst) && Number.isInteger(s.e));
-      for (const e of G.empires) if (!DOCTRINES[e.doctrine]) e.doctrine = 'balanced';
-      G.speed = 1; pathCache.clear(); markFill();
+      const relations = ['rel', 'op', 'truce', 'warStart'];
+      if (relations.some(key => !Array.isArray(g[key]) || g[key].length !== g.empires.length ||
+          g[key].some(row => !row || row.length !== g.empires.length))) {
+        throw new Error('Save diplomacy data is incomplete or corrupted');
+      }
+      for (let t = 0; t < WD.T; t++) {
+        if (!Number.isInteger(g.owner[t]) || g.owner[t] < -1 || g.owner[t] >= g.empires.length ||
+            !Number.isFinite(g.troops[t]) || !Number.isFinite(g.pop[t]) ||
+            !Number.isFinite(g.ind[t]) || !Number.isFinite(g.supply[t])) {
+          throw new Error('Save territory data is incomplete or corrupted');
+        }
+      }
+      if (!Array.isArray(g.battles) || !Array.isArray(g.fleets) || !Array.isArray(g.moves) || !Array.isArray(g.offers)) {
+        throw new Error('Save operations data is incomplete or corrupted');
+      }
+      const validEmpire = id => Number.isInteger(id) && id >= 0 && id < g.empires.length;
+      const validTerritory = id => Number.isInteger(id) && id >= 0 && id < WD.T;
+      if (g.battles.some(b => !b || !validEmpire(b.e) || !validTerritory(b.dst) ||
+          !(b.src === -1 || validTerritory(b.src)) || !Number.isFinite(b.force) || b.force < 0 ||
+          !Number.isFinite(b.sup)) ||
+          g.fleets.some(f => !f || !validEmpire(f.e) || !validTerritory(f.src) || !validTerritory(f.dst) ||
+            !Array.isArray(f.path) || !f.path.length || !Number.isFinite(f.force) || f.force < 0 ||
+            !Number.isFinite(f.ships) || !Number.isFinite(f.pos)) ||
+          g.moves.some(m => !m || !validEmpire(m.e) || !validTerritory(m.from) || !validTerritory(m.to) ||
+            !Number.isFinite(m.amount) || m.amount < 0 || !Number.isFinite(m.arrive)) ||
+          g.offers.some(f => !f || !validEmpire(f.from) || !Number.isInteger(f.id) ||
+            !['peace', 'trade', 'alliance'].includes(f.kind) || !Number.isFinite(f.until))) {
+        throw new Error('Save operations data is incomplete or corrupted');
+      }
+      if (!g.fact || g.fact.length !== WD.T) g.fact = new Uint8Array(WD.T);
+      if (!g.colony || g.colony.length !== WD.T) g.colony = new Uint8Array(WD.T);
+      if (!g.colPolicy || g.colPolicy.length !== WD.T) g.colPolicy = new Uint8Array(WD.T);
+      if (!g.silo || g.silo.length !== WD.T) g.silo = new Uint8Array(WD.T);
+      if (!g.missile || g.missile.length !== WD.T) g.missile = new Uint8Array(WD.T);
+      if (!g.nuke || g.nuke.length !== WD.T) g.nuke = new Uint8Array(WD.T);
+      if (!g.strikes) g.strikes = [];
+      if (!Array.isArray(g.strikes)) throw new Error('Save strategic operations data is corrupted');
+      if (g.strikes.some(s => !s || !validEmpire(s.e) || !validTerritory(s.src) || !validTerritory(s.dst) ||
+          !['missile', 'nuke'].includes(s.kind) || !Number.isFinite(s.distance) || !Number.isFinite(s.arrive))) {
+        throw new Error('Save strategic operations data is corrupted');
+      }
+      if (!Number.isFinite(g.worldGdp)) g.worldGdp = 1;
+      if (!Array.isArray(g.trade) || g.trade.length !== g.empires.length ||
+          g.trade.some(row => !row || row.length !== g.empires.length)) {
+        g.trade = g.empires.map(() => new Uint8Array(g.empires.length));
+      }
+      for (const e of g.empires) {
+        if (!Array.isArray(e.bonus) || e.bonus.length !== 6 || e.bonus.some(v => !Number.isFinite(v))) e.bonus = [0, 0, 0, 0, 0, 0];
+        if (!e.c || typeof e.c !== 'object' ||
+            ['terr', 'pop', 'gdp', 'troops', 'area', 'coastal', 'inc'].some(key => !Number.isFinite(e.c[key])) ||
+            !Array.isArray(e.c.res) || e.c.res.length !== 6 || e.c.res.some(v => !Number.isFinite(v))) {
+          e.c = { terr: 0, pop: 0, gdp: 0, troops: 0, area: 0, coastal: 0, res: [0, 0, 0, 0, 0, 0], inc: 0 };
+        }
+        if (!e.stats || typeof e.stats !== 'object' ||
+            ['peak', 'won', 'lost', 'wars'].some(key => !Number.isFinite(e.stats[key]))) {
+          e.stats = { peak: 0, won: 0, lost: 0, wars: 0 };
+        }
+        if (!e.ai || typeof e.ai !== 'object' ||
+            ['next', 'aggr', 'naval'].some(key => !Number.isFinite(e.ai[key]))) {
+          e.ai = { next: g.day + 1, aggr: .5, naval: .5 };
+        }
+        if (!g.trade[e.id]) g.trade[e.id] = new Uint8Array(g.empires.length);
+        for (const other of g.empires) if (!g.trade[e.id][other.id]) g.trade[e.id][other.id] = 0;
+        if (!e.fin || typeof e.fin !== 'object' ||
+            ['income', 'trade', 'milB', 'resB', 'upk', 'net'].some(key => !Number.isFinite(e.fin[key]))) {
+          e.fin = { income: 0, trade: 0, milB: 0, resB: 0, upk: 0, net: 0 };
+        }
+      }
+      g.strikes = g.strikes.filter(s => s && Number.isInteger(s.dst) && Number.isInteger(s.e));
+      for (const e of g.empires) if (!DOCTRINES[e.doctrine]) e.doctrine = 'balanced';
+      g.speed = 1; G = g; pathCache.clear(); markFill();
       return true;
     } catch (e) { toast('Could not read save: ' + esc(e.message), 'bad'); return false; }
   },

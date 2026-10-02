@@ -665,7 +665,14 @@ function loop(now) {
     if (STATE === 'game' && G && !G.over && G.speed > 0) {
       acc += dt * 1000;
       const dm = CFG.DAY_MS / G.speed; let n = 0;
-      while (acc >= dm && n < 8 && G && !G.over && G.speed > 0) { simDay(); acc -= dm; n++; }
+      try {
+        while (acc >= dm && n < 8 && G && !G.over && G.speed > 0) { simDay(); acc -= dm; n++; }
+      } catch (err) {
+        console.error(err);
+        G.speed = 0; acc = 0;
+        toast(`Simulation paused after an unexpected error: ${esc(err.message || 'Unknown error')}`, 'bad', { ttl: 12000 });
+        updateTopbar();
+      }
       if (n >= 8) acc = 0;
     } else acc = 0;
     renderFrame(now, dt);
