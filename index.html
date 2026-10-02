@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#05080d">
+<title>World Conquest: Empires of Earth</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+</head>
+<body data-st="loading">
+<canvas id="base"></canvas>
+<canvas id="over"></canvas>
+<div id="vig"></div>
+
+<!-- LOADING -->
+<div id="loading" data-show="loading"><div class="ld-box">
+  <div class="ld-globe">
+    <svg viewBox="0 0 74 74"><circle cx="37" cy="37" r="30" fill="none" stroke="rgba(209,173,102,.35)"/><ellipse cx="37" cy="37" rx="13" ry="30" fill="none" stroke="rgba(209,173,102,.5)"/><path d="M7 37h60M12 22h50M12 52h50" stroke="rgba(209,173,102,.25)"/></svg>
+    <svg viewBox="0 0 74 74" class="spin"><circle cx="37" cy="37" r="35" fill="none" stroke="#f0d595" stroke-width="1.5" stroke-dasharray="40 180" stroke-linecap="round"/></svg>
+  </div>
+  <div class="ld-title">WORLD CONQUEST</div>
+  <div class="ld-bar"><i id="ldFill"></i></div>
+  <div class="ld-msg" id="ldMsg">Preparing the world</div>
+</div></div>
+
+<!-- MAIN MENU -->
+<div id="menu" data-show="menu">
+  <div class="menu-shade"></div>
+  <div class="menu-col">
+    <div class="menu-kick">Empires of Earth &middot; A Grand Strategy</div>
+    <h1 class="title">WORLD<br>CONQUEST</h1>
+    <div class="title-rule"></div>
+    <nav class="menu-nav">
+      <button data-act="new-game"><span>I</span>New Game<em>Found an empire anywhere on Earth</em></button>
+      <button data-act="continue" id="btnCont"><span>II</span>Continue<em id="contInfo">No saved campaign</em></button>
+      <button data-act="load-menu"><span>III</span>Load Game<em>Manual save and autosave slots</em></button>
+      <button data-act="settings"><span>IV</span>Settings<em>Audio and display</em></button>
+      <button data-act="howto"><span>V</span>How to Play<em>The rules of conquest</em></button>
+    </nav>
+    <div class="menu-foot">Equal Earth projection &middot; Boundaries: Natural Earth (public domain) via world-atlas &middot; v1.0</div>
+  </div>
+  <div class="menu-meta" id="menuMeta"></div>
+</div>
+
+<!-- START LOCATION PICK -->
+<div id="pickbar" class="panel" data-show="pick">
+  <div><div class="ph">Choose your homeland</div><p>Click any territory on Earth. Every start is viable.</p></div>
+  <button class="btn ghost sm" data-act="pick-back">Back</button>
+</div>
+<aside id="found" class="panel lockable" data-show="pick"></aside>
+
+<!-- GAME HUD -->
+<header id="topbar" data-show="game">
+  <div class="tb-emp"><span id="tbEmb"></span><div style="min-width:0"><div class="tb-name" id="tbName"></div><div class="tb-sub" id="tbSub"></div></div></div>
+  <div class="tb-stats" id="tbStats"></div>
+  <div class="tb-right">
+    <div class="goalc" id="tbGoal"></div>
+    <div class="date" id="tbDate"></div>
+    <div class="speed" id="speedCtl"></div>
+    <button class="ibtn" data-act="mute" id="btnMute" title="Mute"></button>
+    <button class="ibtn" data-act="pause-menu" id="btnMenu" title="Menu (Esc)"></button>
+  </div>
+</header>
+<aside id="tpanel" class="panel lockable hide"></aside>
+<div id="drawer" class="panel lockable hide"></div>
+<div id="legend" class="panel hide"></div>
+<nav id="dock" class="panel" data-show="game"></nav>
+<div id="zoomctl" class="panel" data-show="game pick"></div>
+
+<div id="toasts"></div>
+<div id="tooltip" class="hide"></div>
+<div id="modal" class="hide"></div>
+
+<script src="js/core.js"></script>
+<script src="js/world.js"></script>
+<script src="js/render.js"></script>
+<script src="js/game.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
